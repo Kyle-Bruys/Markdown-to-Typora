@@ -5,9 +5,11 @@ def process_markdown_final(text):
     if not text:
         return "", ""
 
-    # 🎯 0. AI가 잘못 생성한 마크다운 이스케이프(\*\*)를 정상적인 굵은 글씨(**)로 복구
-    text = text.replace(r'\*\*', '**')
+    # 🎯 0. AI 오류 복구 및 숨은 공백 세탁
+    text = text.replace(r'\*\*', '**')  # 굵은 글씨 복구
     text = text.replace(r'\*', '*')     # 일반 별표 복구
+    text = text.replace('/*', '*')      # 슬래시 오타 복구
+    text = text.replace('\xa0', ' ')    # Typora 위계를 꼬게 만드는 유령 공백(NBSP)을 일반 공백으로 치환!
 
     # 1. 인용 표시 지우기
     text = re.sub(r'(?i)[\[【]\s*cite\s*[:\s]*[^\]】]*[\]】]', '', text)
@@ -47,22 +49,26 @@ def process_markdown_final(text):
     # 4. 가로줄 제거
     main_part = re.sub(r'(?m)^-{3,}\s*$', '', main_part)
 
-    # 5. AI가 빼먹은 글머리기호 강제 줄바꿈 (들여쓰기 위계 보존)
+    # 5. AI가 빼먹은 글머리기호 강제 줄바꿈
     split_lines = main_part.split('\n')
     fixed_lines = []
     for line in split_lines:
         match = re.match(r'^([ \t]*)', line)
         base_indent = match.group(1) if match else ''
-        rep = r'\1\n' + base_indent + '  * '
+        rep = r'\1\n' + base_indent + '* '
         line = re.sub(r'([^\s])[ \t]+\*[ \t]+', rep, line)
         fixed_lines.append(line)
     main_part = '\n'.join(fixed_lines)
 
+    # 🎯 5.5 AI의 고질적인 '1칸 들여쓰기' 유령 스페이스 억제 (Typora 위계 강제 정렬)
+    main_part = re.sub(r'(?m)^ ([\*\-\+]|\d+\.)\s', r'\1 ', main_part)
+
     # 6. 특수문자만 있는 줄의 경우 다음 줄과 병합
     main_part = re.sub(r'(?m)^([^a-zA-Z0-9가-힣\s]+)\r?\n', r'\1', main_part)
 
-    # 7. 빈 줄 보존 및 압축 (일반 텍스트 단락 간격을 위해 1줄로 통합)
-    main_part = re.sub(r'(?:\r?\n\s*){2,}', '\n\n', main_part.strip())
+    # 🎯 7. 빈 줄 보존 및 압축 (들여쓰기 증발 버그 완벽 수정!)
+    # \s*가 다음 줄의 첫 들여쓰기까지 갉아먹던 문제를 [ \t]*로 가로 공백만 무시하게 제한하여 해결
+    main_part = re.sub(r'\n([ \t]*\n)+', '\n\n', main_part.strip('\n\r'))
 
     # 8. 제목 수준 정규화
     main_lines = main_part.split('\n')
@@ -110,7 +116,7 @@ def process_markdown_final(text):
     for i, line in enumerate(main_lines):
         stripped = line.lstrip()
         
-        # 빈 줄 통과 로직 (문단 간격 유지)
+        # 빈 줄 통과 로직
         if not stripped:
             if not spaced_lines or spaced_lines[-1] not in ('', '<br>'):
                 spaced_lines.append('')
@@ -183,7 +189,7 @@ def process_markdown_final(text):
     while spaced_lines and spaced_lines[0] in ('', '<br>'):
         spaced_lines.pop(0)
 
-    # 🎯 10. 첫 줄 제목 <br> 강제 삽입 (맨 마지막에 딱 한 번만 검사)
+    # 10. 첫 줄 제목 <br> 강제 삽입
     if spaced_lines and (spaced_lines[0].startswith('### ') or spaced_lines[0].startswith('#### ')):
         spaced_lines.insert(0, '')
         spaced_lines.insert(0, '<br>')
