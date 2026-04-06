@@ -5,6 +5,10 @@ def process_markdown_final(text):
     if not text:
         return "", ""
 
+    # 🎯 0. AI가 잘못 생성한 마크다운 이스케이프(\*\*)를 정상적인 굵은 글씨(**)로 복구
+    text = text.replace(r'\*\*', '**')
+    text = text.replace(r'\*', '*')     # 일반 별표 복구
+
     # 1. 인용 표시 지우기
     text = re.sub(r'(?i)[\[【]\s*cite\s*[:\s]*[^\]】]*[\]】]', '', text)
 
@@ -43,7 +47,7 @@ def process_markdown_final(text):
     # 4. 가로줄 제거
     main_part = re.sub(r'(?m)^-{3,}\s*$', '', main_part)
 
-    # 5. AI가 빼먹은 글머리기호 강제 줄바꿈
+    # 5. AI가 빼먹은 글머리기호 강제 줄바꿈 (들여쓰기 위계 보존)
     split_lines = main_part.split('\n')
     fixed_lines = []
     for line in split_lines:
@@ -57,13 +61,12 @@ def process_markdown_final(text):
     # 6. 특수문자만 있는 줄의 경우 다음 줄과 병합
     main_part = re.sub(r'(?m)^([^a-zA-Z0-9가-힣\s]+)\r?\n', r'\1', main_part)
 
-    # 🎯 7. 빈 줄 보존 및 압축 (모두 지우지 않고, 여백 유지를 위해 1줄로 통합)
+    # 7. 빈 줄 보존 및 압축 (일반 텍스트 단락 간격을 위해 1줄로 통합)
     main_part = re.sub(r'(?:\r?\n\s*){2,}', '\n\n', main_part.strip())
 
     # 8. 제목 수준 정규화
     main_lines = main_part.split('\n')
     if main_lines:
-        # 최초의 유효한 제목 레벨 찾기 (빈 줄 무시)
         original_first_level = 2
         for line in main_lines:
             if line.strip():
@@ -78,7 +81,7 @@ def process_markdown_final(text):
         for i in range(len(main_lines)):
             current_line = main_lines[i]
             if not current_line.strip():
-                continue # 빈 줄은 변환 없이 통과
+                continue 
                 
             match = re.match(r'^(#{1,5})\s+(.*)', current_line)
             is_true_header = current_line.strip() in clean_true_headers
@@ -94,7 +97,7 @@ def process_markdown_final(text):
 
         main_part = '\n'.join(main_lines)
 
-    # 🎯 8.5. 예외 보장: 3단계 바로 뒤에 오는 4단계 사이의 빈 줄은 강제 삭제
+    # 8.5. 예외 보장: 3단계 바로 뒤에 오는 4단계 사이의 빈 줄은 강제 삭제
     main_part = re.sub(r'(?m)^(###\s+[^\n]*)\n+(####\s+)', r'\1\n\2', main_part)
 
     # 9. 여백(빈 줄) 지능형 재배치
@@ -102,12 +105,12 @@ def process_markdown_final(text):
     spaced_lines = []
     was_in_list = False
     is_prev_blockquote = False
-    last_real_line = "" # 빈 줄을 건너뛰고 구조를 파악하기 위한 기억 장치
+    last_real_line = ""
 
     for i, line in enumerate(main_lines):
         stripped = line.lstrip()
         
-        # [빈 줄 통과 로직] AI가 의도한 문단 사이의 빈 줄을 그대로 살려줌!
+        # 빈 줄 통과 로직 (문단 간격 유지)
         if not stripped:
             if not spaced_lines or spaced_lines[-1] not in ('', '<br>'):
                 spaced_lines.append('')
@@ -140,7 +143,7 @@ def process_markdown_final(text):
                 needs_br_gap = True
             else:
                 if is_h4 and is_prev_h3:
-                    pass # 3단계 직후 4단계는 예외 (이미 8.5에서 붙여둠)
+                    pass 
                 else:
                     needs_br_gap = True
 
@@ -156,9 +159,8 @@ def process_markdown_final(text):
             elif not currently_in_list and was_in_list:
                 needs_normal_gap = True
 
-        # 결정된 여백 타입 삽입 (중복 방지 안전망 포함)
+        # 결정된 여백 타입 삽입
         if needs_br_gap:
-            # 이미 윗줄이 순수 빈 줄이라면 그 자리를 활용해 <br> 콤보를 만듦
             if spaced_lines and spaced_lines[-1] == '':
                 spaced_lines.append('<br>')
                 spaced_lines.append('')
@@ -173,14 +175,18 @@ def process_markdown_final(text):
 
         spaced_lines.append(line)
         
-        # 다음 루프를 위해 현재 줄의 상태 저장
         was_in_list = currently_in_list
         is_prev_blockquote = is_blockquote
         last_real_line = line
 
-    # 맨 앞에 쓸데없이 들어간 여백 깔끔하게 제거
+    # 맨 앞에 쓸데없이 들어간 여백 깔끔하게 1차 제거
     while spaced_lines and spaced_lines[0] in ('', '<br>'):
         spaced_lines.pop(0)
+
+    # 🎯 10. 첫 줄 제목 <br> 강제 삽입 (맨 마지막에 딱 한 번만 검사)
+    if spaced_lines and (spaced_lines[0].startswith('### ') or spaced_lines[0].startswith('#### ')):
+        spaced_lines.insert(0, '')
+        spaced_lines.insert(0, '<br>')
 
     main_part = '\n'.join(spaced_lines)
 
@@ -190,7 +196,7 @@ def process_markdown_final(text):
 st.set_page_config(page_title="마크다운 전처리기", layout="wide")
 st.title("📑 Typora용 마크다운 자동 정규화")
 
-input_text = st.text_area("원본 마크다운을 붙여넣으세요:", height=300)
+input_text = st.text_area("원본 마크다운을 아래에 붙여넣으세요:", height=300)
 
 if input_text:
     intro, main = process_markdown_final(input_text)
